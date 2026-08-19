@@ -1,0 +1,6 @@
+{
+  "name": "A Magia está no Ar - Studio Sapateia",
+  "description": "Plataforma de vídeos, elenco e coreografias do espetáculo de sapateado 'A Magia está no Ar' do Studio Sá Pateia, integrado com Google Drive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
