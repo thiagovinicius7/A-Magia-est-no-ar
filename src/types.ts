@@ -44,6 +44,8 @@ export interface ShowInfo {
   instagramUrl: string;
   instagramHandle: string;
   masterDriveFolderUrl: string;
+  googleSheetUrl?: string;
+  lastSyncedAt?: string;
 }
 
 export type ViewMode = 'grid' | 'lineup' | 'cast' | 'stageManager';

@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
-import { X, FolderOpen, ExternalLink, Download, Upload, RefreshCw, Check, Sparkles, HelpCircle, FileText, ArrowRight } from 'lucide-react';
+import { X, FolderOpen, ExternalLink, Download, Upload, RefreshCw, Check, Sparkles, FileSpreadsheet, Layers, Table, AlertCircle, ClipboardCopy } from 'lucide-react';
 import { Choreography, ShowInfo } from '../types';
 import { parseBatchChoreographies } from '../utils/driveHelper';
+import {
+  fetchGoogleSheetCsv,
+  parseChoreographiesFromCsv,
+  downloadGoogleSheetsTemplate,
+} from '../utils/googleSheetsSync';
 
 interface DriveFolderSyncModalProps {
   isOpen: boolean;
@@ -26,12 +31,96 @@ export const DriveFolderSyncModal: React.FC<DriveFolderSyncModalProps> = ({
   isAdmin = false,
   onRequireAdmin,
 }) => {
+  const [activeTab, setActiveTab] = useState<'sheets' | 'paste' | 'folder' | 'backup'>('sheets');
+  const [sheetUrlInput, setSheetUrlInput] = useState(showInfo.googleSheetUrl || '');
+  const [pastedCsvText, setPastedCsvText] = useState('');
   const [masterFolderUrl, setMasterFolderUrl] = useState(showInfo.masterDriveFolderUrl);
-  const [batchText, setBatchText] = useState('');
-  const [copiedStatus, setCopiedStatus] = useState(false);
-  const [activeTab, setActiveTab] = useState<'folder' | 'batch' | 'backup' | 'guide'>('folder');
+  const [isLoadingSheet, setIsLoadingSheet] = useState(false);
+  const [sheetError, setSheetError] = useState<string | null>(null);
+  const [sheetSuccessMessage, setSheetSuccessMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  // Real-Time Google Sheets Live Sync via URL
+  const handleSyncGoogleSheet = async () => {
+    if (!sheetUrlInput.trim()) {
+      setSheetError('Por favor, cole o link da sua planilha do Google Sheets.');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    setSheetError(null);
+    setSheetSuccessMessage(null);
+
+    try {
+      const csvText = await fetchGoogleSheetCsv(sheetUrlInput.trim());
+      const parsedItems = parseChoreographiesFromCsv(csvText);
+
+      if (parsedItems.length === 0) {
+        throw new Error(
+          'Nenhuma coreografia reconhecida. Verifique se a planilha possui os títulos das colunas na primeira linha.'
+        );
+      }
+
+      const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const updatedInfo: ShowInfo = {
+        ...showInfo,
+        googleSheetUrl: sheetUrlInput.trim(),
+        lastSyncedAt: nowStr,
+      };
+
+      onUpdateShowInfo(updatedInfo);
+      onImportChoreographies(parsedItems);
+      setSheetSuccessMessage(`Sucesso! ${parsedItems.length} coreografias sincronizadas em tempo real.`);
+    } catch (err: any) {
+      setSheetError(err.message || 'Erro ao conectar à planilha.');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
+  // Import from local CSV File (Offline / Direct upload)
+  const handleImportCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = parseChoreographiesFromCsv(text);
+        if (parsed.length === 0) {
+          alert('Não foi possível identificar as coreografias no arquivo CSV selecionado.');
+          return;
+        }
+        onImportChoreographies(parsed);
+        alert(`Sucesso! ${parsed.length} coreografias carregadas do arquivo CSV.`);
+        onClose();
+      } catch (err) {
+        alert('Erro ao processar o arquivo CSV.');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  // Import from pasted spreadsheet cells (Ctrl+C from Sheets/Excel, Ctrl+V here)
+  const handleImportPastedText = () => {
+    if (!pastedCsvText.trim()) return;
+
+    try {
+      const parsed = parseChoreographiesFromCsv(pastedCsvText);
+      if (parsed.length === 0) {
+        alert('Nenhuma coreografia reconhecida no texto colado. Copie os cabeçalhos e as linhas da planilha.');
+        return;
+      }
+      onImportChoreographies(parsed);
+      setPastedCsvText('');
+      alert(`Sucesso! ${parsed.length} coreografias importadas.`);
+      onClose();
+    } catch (err) {
+      alert('Erro ao importar texto colado.');
+    }
+  };
 
   const handleSaveMasterFolder = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,47 +137,7 @@ export const DriveFolderSyncModal: React.FC<DriveFolderSyncModalProps> = ({
       ...showInfo,
       masterDriveFolderUrl: masterFolderUrl.trim(),
     });
-  };
-
-  const handleBatchImport = () => {
-    if (!batchText.trim()) return;
-
-    if (!isAdmin && onRequireAdmin) {
-      onRequireAdmin('Importar coreografias em lote', () => {
-        executeBatchImport();
-      });
-      return;
-    }
-    executeBatchImport();
-  };
-
-  const executeBatchImport = () => {
-    const parsedItems = parseBatchChoreographies(batchText);
-    if (parsedItems.length === 0) {
-      alert('Nenhuma coreografia reconhecida. Verifique o formato do texto.');
-      return;
-    }
-
-    const created: Choreography[] = parsedItems.map((item, idx) => ({
-      id: `ch-batch-${Date.now()}-${idx}`,
-      order: item.order || choreographies.length + idx + 1,
-      title: item.title,
-      act: (item.act as any) || 'Ato 1',
-      level: 'Intermediário',
-      dancers: item.dancers.length > 0 ? item.dancers : ['Elenco Sá Pateia'],
-      choreographer: 'Studio Sá Pateia',
-      musicTitle: 'Trilha do Espetáculo',
-      duration: '03:30',
-      driveUrl: item.driveUrl || '',
-      costume: 'Figurino padrão Sá Pateia',
-      rehearsalStatus: 'Em Ensaio',
-      isFavorite: false,
-    }));
-
-    onImportChoreographies([...choreographies, ...created]);
-    setBatchText('');
-    alert(`${created.length} coreografias importadas com sucesso!`);
-    onClose();
+    alert('Pasta do Google Drive vinculada com sucesso!');
   };
 
   const handleExportJSON = () => {
@@ -96,7 +145,7 @@ export const DriveFolderSyncModal: React.FC<DriveFolderSyncModalProps> = ({
       showInfo,
       choreographies,
       exportedAt: new Date().toISOString(),
-      version: '1.0',
+      version: '2.0',
     };
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -112,16 +161,6 @@ export const DriveFolderSyncModal: React.FC<DriveFolderSyncModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!isAdmin && onRequireAdmin) {
-      onRequireAdmin('Restaurar backup JSON do espetáculo', () => {
-        readAndApplyJSON(file);
-      });
-      return;
-    }
-    readAndApplyJSON(file);
-  };
-
-  const readAndApplyJSON = (file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -145,281 +184,324 @@ export const DriveFolderSyncModal: React.FC<DriveFolderSyncModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-amber-500/30 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[88vh]">
+      <div className="relative w-full max-w-3xl bg-slate-900 border border-amber-500/30 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[90vh]">
         
-        {/* Header */}
+        {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-slate-950/90 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-300 flex items-center justify-center border border-blue-500/30">
-              <FolderOpen className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center border border-emerald-500/30">
+              <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
               <h2 className="font-theatre text-xl font-bold text-slate-100">
-                Integração com Google Drive
+                Sincronização & Nuvem
               </h2>
               <p className="text-xs text-slate-400">
-                Central de vídeos, pastas na nuvem e importação em lote
+                Google Sheets em tempo real, Google Drive e Backup
               </p>
             </div>
           </div>
+
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center px-6 border-b border-slate-800 bg-slate-950/40 gap-2 shrink-0">
+        <div className="flex items-center px-6 pt-3 border-b border-slate-800 bg-slate-950/40 gap-2 shrink-0 overflow-x-auto text-xs">
+          <button
+            onClick={() => setActiveTab('sheets')}
+            className={`flex items-center gap-2 pb-2.5 px-3 font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'sheets'
+                ? 'border-emerald-400 text-emerald-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Google Sheets (Link Nuvem)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('paste')}
+            className={`flex items-center gap-2 pb-2.5 px-3 font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'paste'
+                ? 'border-purple-400 text-purple-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ClipboardCopy className="w-4 h-4" />
+            <span>Colar Células / Upload CSV</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('folder')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 pb-2.5 px-3 font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'folder'
-                ? 'border-amber-400 text-amber-300'
+                ? 'border-blue-400 text-blue-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Pasta Master do Espetáculo
-          </button>
-
-          <button
-            onClick={() => setActiveTab('batch')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'batch'
-                ? 'border-amber-400 text-amber-300'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Importar Vários Links em Lote
-          </button>
-
-          <button
-            onClick={() => setActiveTab('guide')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'guide'
-                ? 'border-amber-400 text-amber-300'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Guia de Compartilhamento
+            <FolderOpen className="w-4 h-4" />
+            <span>Pasta Google Drive</span>
           </button>
 
           <button
             onClick={() => setActiveTab('backup')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 pb-2.5 px-3 font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'backup'
                 ? 'border-amber-400 text-amber-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Backup & Exportação
+            <Download className="w-4 h-4" />
+            <span>Backup JSON</span>
           </button>
         </div>
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="p-6 overflow-y-auto space-y-6 flex-1">
           
-          {/* Tab 1: Master Folder */}
-          {activeTab === 'folder' && (
-            <div className="space-y-5">
-              <div className="bg-blue-950/30 border border-blue-500/30 rounded-2xl p-5">
-                <h3 className="text-sm font-bold text-blue-200 mb-1 flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4 text-blue-400" />
-                  <span>Pasta Geral no Google Drive</span>
-                </h3>
-                <p className="text-xs text-slate-300 leading-relaxed mb-4">
-                  Coloque todos os vídeos das coreografias em uma pasta principal do Google Drive.
-                  Ao cadastrar o link abaixo, todo o elenco e a equipe técnica poderão acessar o diretório master de vídeos com um clique.
-                </p>
-
-                <form onSubmit={handleSaveMasterFolder} className="space-y-3">
-                  <label className="block text-xs font-semibold text-slate-300">
-                    URL da Pasta no Google Drive
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      placeholder="https://drive.google.com/drive/folders/..."
-                      value={masterFolderUrl}
-                      onChange={(e) => setMasterFolderUrl(e.target.value)}
-                      className="flex-1 px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-blue-400 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                    >
-                      Salvar
-                    </button>
-                  </div>
-                </form>
-
-                {showInfo.masterDriveFolderUrl && (
-                  <div className="mt-4 pt-3 border-t border-blue-500/20 flex items-center justify-between">
-                    <span className="text-xs text-slate-400">Pasta conectada atualmente:</span>
-                    <a
-                      href={showInfo.masterDriveFolderUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-300 hover:text-blue-200 text-xs font-semibold transition-colors"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Abrir Pasta no Google Drive</span>
-                    </a>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Tab 2: Batch Text Importer */}
-          {activeTab === 'batch' && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-bold text-amber-200 mb-1">
-                  Importação Rápida de Coreografias e Links
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Cole uma lista de coreografias com os participantes e links do Google Drive (uma por linha).
-                </p>
-              </div>
-
-              <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-400 font-mono space-y-1">
-                <div className="text-amber-400 font-sans font-semibold">Exemplos de formato aceito:</div>
-                <div>1. O Livro Encantado | Dancers: Thiago, Marina, Camila | https://drive.google.com/file/d/abc/view</div>
-                <div>Castelo nas Nuvens - Sofia, Beatriz, Alice - https://drive.google.com/file/d/xyz/view</div>
-              </div>
-
-              <textarea
-                rows={7}
-                placeholder="Cole as linhas aqui..."
-                value={batchText}
-                onChange={(e) => setBatchText(e.target.value)}
-                className="w-full p-3 bg-slate-950 border border-slate-800 focus:border-amber-400 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none font-mono"
-              />
-
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={handleBatchImport}
-                  disabled={!batchText.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:pointer-events-none text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  <ArrowRight className="w-4 h-4" />
-                  <span>Processar e Adicionar</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Tab 3: Guide */}
-          {activeTab === 'guide' && (
-            <div className="space-y-4 text-xs text-slate-300">
-              <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 space-y-3">
-                <h4 className="font-bold text-amber-300 text-sm flex items-center gap-1.5">
-                  <HelpCircle className="w-4 h-4 text-amber-400" />
-                  <span>Como liberar os vídeos do Google Drive para reprodução:</span>
-                </h4>
-                
-                <ol className="space-y-2.5 list-decimal list-inside text-slate-300">
-                  <li className="leading-relaxed">
-                    <strong className="text-slate-100">Abra o Google Drive</strong> no navegador ou celular e localize o vídeo gravado do ensaio ou apresentação.
-                  </li>
-                  <li className="leading-relaxed">
-                    Clique com o botão direito no vídeo (ou toque nos três pontinhos no celular) e selecione <strong className="text-amber-200">Compartilhar &gt; Compartilhar</strong>.
-                  </li>
-                  <li className="leading-relaxed">
-                    Em &ldquo;Acesso geral&rdquo;, altere de <em>Restrito</em> para <strong className="text-emerald-300">&ldquo;Qualquer pessoa com o link&rdquo;</strong> (função Leitor).
-                  </li>
-                  <li className="leading-relaxed">
-                    Clique em <strong className="text-slate-100">&ldquo;Copiar link&rdquo;</strong> e cole diretamente no campo de vídeo da coreografia aqui no aplicativo!
-                  </li>
-                </ol>
-
-                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-[11px] leading-relaxed mt-2">
-                  ✨ <strong>Dica do Studio Sá Pateia:</strong> O app converte automaticamente qualquer link do Google Drive (<code className="bg-black/40 px-1 py-0.5 rounded text-amber-300">/view</code>, <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300">/open</code>, <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300">id=...</code>) para o player de teatro integrado!
+          {/* TAB 1: GOOGLE SHEETS LIVE SYNC VIA URL */}
+          {activeTab === 'sheets' && (
+            <div className="space-y-6">
+              
+              {/* Introduction Banner */}
+              <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-start gap-3.5">
+                <Sparkles className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="space-y-1 text-xs">
+                  <p className="font-semibold text-emerald-200 text-sm">
+                    Atualização Automática em Tempo Real
+                  </p>
+                  <p className="text-slate-300 leading-relaxed">
+                    Você pode alterar a planilha no Google Sheets a qualquer momento. Ao abrir o app, todos os alunos e professores recebem as informações mais recentes na hora.
+                  </p>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Tab 4: Backup & Reset */}
-          {activeTab === 'backup' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                
-                {/* Export Card */}
-                <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <h4 className="font-bold text-slate-100 text-sm mb-1 flex items-center gap-1.5">
-                      <Download className="w-4 h-4 text-emerald-400" />
-                      <span>Exportar Catálogo</span>
-                    </h4>
-                    <p className="text-xs text-slate-400 mb-4">
-                      Baixe um arquivo JSON com todas as {choreographies.length} coreografias, elenco e links para backup ou para enviar aos professores.
-                    </p>
-                  </div>
+              {/* Quick Actions: Download Template & Open Sheets */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={downloadGoogleSheetsTemplate}
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all cursor-pointer shadow-sm hover:border-emerald-400"
+                >
+                  <Download className="w-4 h-4 text-emerald-400" />
+                  <span>Baixar Modelo de Planilha (.CSV)</span>
+                </button>
 
+                <a
+                  href="https://sheets.new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs font-bold transition-all cursor-pointer shadow-md"
+                >
+                  <Table className="w-4 h-4" />
+                  <span>Abrir Novo Google Sheets</span>
+                  <ExternalLink className="w-3.5 h-3.5 opacity-75" />
+                </a>
+              </div>
+
+              {/* Sheet URL Input Form */}
+              <div className="space-y-3 pt-2">
+                <label className="block text-xs font-semibold text-slate-200">
+                  Cole o Link da sua Planilha do Google Sheets:
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="url"
+                    placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                    value={sheetUrlInput}
+                    onChange={(e) => setSheetUrlInput(e.target.value)}
+                    className="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                  />
                   <button
-                    onClick={handleExportJSON}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-200 border border-emerald-500/40 text-xs font-bold transition-colors cursor-pointer"
+                    type="button"
+                    onClick={handleSyncGoogleSheet}
+                    disabled={isLoadingSheet}
+                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer shrink-0"
                   >
-                    Baixar Backup (.json)
+                    <RefreshCw className={`w-4 h-4 ${isLoadingSheet ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingSheet ? 'Sincronizando...' : 'Sincronizar Agora'}</span>
                   </button>
                 </div>
 
-                {/* Import Card */}
-                <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <h4 className="font-bold text-slate-100 text-sm mb-1 flex items-center gap-1.5">
-                      <Upload className="w-4 h-4 text-blue-400" />
-                      <span>Restaurar Backup</span>
-                    </h4>
-                    <p className="text-xs text-slate-400 mb-4">
-                      Carregue um arquivo JSON exportado anteriormente para atualizar todo o catálogo instantaneamente.
-                    </p>
+                {/* Status Messages */}
+                {sheetError && (
+                  <div className="p-3.5 rounded-xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                      <span className="font-semibold">{sheetError}</span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2.5 rounded-lg text-[11px] text-slate-300 leading-relaxed">
+                      💡 <strong>Como liberar o acesso:</strong> No Google Sheets, clique no botão azul <strong>Compartilhar</strong> (canto superior direito) ➔ mude o Acesso Geral para <strong>"Qualquer pessoa com o link pode ler"</strong>. Depois clique em Sincronizar novamente.
+                    </div>
                   </div>
+                )}
 
-                  <label className="w-full py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-200 border border-blue-500/40 text-xs font-bold transition-colors cursor-pointer text-center block">
-                    <span>Selecionar Arquivo</span>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={handleImportJSON}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
+                {sheetSuccessMessage && (
+                  <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>{sheetSuccessMessage}</span>
+                  </div>
+                )}
 
+                {showInfo.lastSyncedAt && !sheetSuccessMessage && (
+                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span>Última sincronização: às <strong>{showInfo.lastSyncedAt}</strong></span>
+                  </div>
+                )}
               </div>
 
-              {/* Reset to Default Data */}
-              <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+              {/* Instructions */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 text-xs text-slate-300">
+                <h4 className="font-bold text-slate-200 uppercase tracking-wider">
+                  Passo a passo rápido:
+                </h4>
+                <ol className="space-y-1.5 list-decimal list-inside leading-relaxed">
+                  <li>Clique em <strong>Baixar Modelo</strong> e abra no Google Sheets.</li>
+                  <li>No Google Sheets, clique em <strong>Compartilhar</strong> e marque como <strong>"Qualquer pessoa com o link"</strong>.</li>
+                  <li>Cole o link acima e clique em <strong>Sincronizar Agora</strong>.</li>
+                </ol>
+              </div>
+
+            </div>
+          )}
+
+          {/* TAB 2: PASTE CELLS / UPLOAD CSV DIRECTLY */}
+          {activeTab === 'paste' && (
+            <div className="space-y-5">
+              <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/30 text-xs text-purple-200 space-y-1">
+                <p className="font-semibold text-sm">Copiar e Colar Células da Planilha ou Enviar Arquivo</p>
+                <p className="text-slate-300 leading-relaxed">
+                  Você pode selecionar as linhas na sua planilha do Google Sheets ou Excel, pressionar <kbd className="bg-slate-800 px-1 py-0.5 rounded text-amber-300 font-mono">Ctrl+C</kbd> e colar aqui com <kbd className="bg-slate-800 px-1 py-0.5 rounded text-amber-300 font-mono">Ctrl+V</kbd>.
+                </p>
+              </div>
+
+              {/* File Upload Option */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div>
-                  <span className="text-xs font-bold text-slate-300 block">Restaurar Coreografias Padrão</span>
-                  <span className="text-[11px] text-slate-500">Recarrega o espetáculo oficial &ldquo;A Magia está no Ar&rdquo;</span>
+                  <h4 className="text-xs font-bold text-slate-200">Importar Arquivo CSV</h4>
+                  <p className="text-[11px] text-slate-400">Selecione o arquivo .csv salvo no seu computador</p>
                 </div>
+
+                <label className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-colors shrink-0">
+                  <Upload className="w-4 h-4" />
+                  <span>Selecionar Arquivo .CSV</span>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={handleImportCsvFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {/* Paste Textarea */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Ou Cole as Células Copiadas do Google Sheets / Excel:
+                </label>
+                <textarea
+                  rows={6}
+                  value={pastedCsvText}
+                  onChange={(e) => setPastedCsvText(e.target.value)}
+                  placeholder={`Ordem\tTitulo da Coreografia\tAto\tNivel\tElenco\n1\tO Livro Encantado\tAbertura\tCia Sá Pateia\tThiago Vinicius, Marina Alencar\n2\tPó de Pirlimpimpim\tAto 1\tInfantil\tSofia Martins, Beatriz Lima`}
+                  className="w-full p-3 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 font-mono placeholder-slate-600 focus:outline-none focus:border-purple-400"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleImportPastedText}
+                disabled={!pastedCsvText.trim()}
+                className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
+              >
+                Importar Células Coladas
+              </button>
+            </div>
+          )}
+
+          {/* TAB 3: GOOGLE DRIVE MASTER FOLDER */}
+          {activeTab === 'folder' && (
+            <form onSubmit={handleSaveMasterFolder} className="space-y-4">
+              <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/30 flex items-start gap-3 text-xs text-blue-200">
+                <FolderOpen className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                <p>
+                  Vincule a pasta master do Google Drive onde estão guardados todos os vídeos dos ensaios e apresentações do Studio Sá Pateia.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-300">
+                  Link da Pasta Master no Google Drive:
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  value={masterFolderUrl}
+                  onChange={(e) => setMasterFolderUrl(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                {masterFolderUrl ? (
+                  <a
+                    href={masterFolderUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300"
+                  >
+                    <span>Abrir pasta no Google Drive</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                ) : <span />}
 
                 <button
-                  onClick={() => {
-                    const doReset = () => {
-                      if (confirm('Deseja restaurar as 12 coreografias oficiais pré-carregadas do espetáculo?')) {
-                        onResetToDefault();
-                        onClose();
-                      }
-                    };
-                    if (!isAdmin && onRequireAdmin) {
-                      onRequireAdmin('Restaurar dados padrão do espetáculo', doReset);
-                    } else {
-                      doReset();
-                    }
-                  }}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-red-950/50 hover:text-red-300 text-slate-400 border border-slate-700 rounded-xl text-xs transition-colors cursor-pointer"
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Restaurar Padrão</span>
+                  Salvar Pasta Master
                 </button>
               </div>
+            </form>
+          )}
 
+          {/* TAB 4: BACKUP JSON */}
+          {activeTab === 'backup' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 text-xs text-amber-200 space-y-1">
+                <p className="font-semibold">Backup em Arquivo JSON</p>
+                <p className="text-slate-300">
+                  Exporte ou restaure todas as coreografias e dados do espetáculo em um arquivo único.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleExportJSON}
+                  className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-amber-300 border border-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-amber-400" />
+                  <span>Exportar Backup JSON</span>
+                </button>
+
+                <label className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-purple-300 border border-slate-700 text-xs font-semibold transition-colors cursor-pointer">
+                  <Upload className="w-4 h-4 text-purple-400" />
+                  <span>Restaurar Backup JSON</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportJSON}
+                    className="hidden"
+                  />
+                </label>
+              </div>
             </div>
           )}
 

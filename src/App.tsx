@@ -24,7 +24,15 @@ export default function App() {
   const [showInfo, setShowInfo] = useState<ShowInfo>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_SHOW_INFO);
-      return saved ? JSON.parse(saved) : INITIAL_SHOW_INFO;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...INITIAL_SHOW_INFO,
+          ...parsed,
+          googleSheetUrl: parsed.googleSheetUrl || INITIAL_SHOW_INFO.googleSheetUrl,
+        };
+      }
+      return INITIAL_SHOW_INFO;
     } catch {
       return INITIAL_SHOW_INFO;
     }
@@ -70,6 +78,30 @@ export default function App() {
       console.error('Failed to save showInfo to localStorage', e);
     }
   }, [showInfo]);
+
+  // Auto-sync with Google Sheets on mount if URL is configured
+  useEffect(() => {
+    if (!showInfo.googleSheetUrl) return;
+
+    const fetchLatestFromSheets = async () => {
+      try {
+        const { fetchGoogleSheetCsv, parseChoreographiesFromCsv } = await import('./utils/googleSheetsSync');
+        const csvText = await fetchGoogleSheetCsv(showInfo.googleSheetUrl!);
+        const items = parseChoreographiesFromCsv(csvText);
+        if (items.length > 0) {
+          setChoreographies(items);
+          setShowInfo((prev) => ({
+            ...prev,
+            lastSyncedAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          }));
+        }
+      } catch (err) {
+        console.warn('Auto-sync from Google Sheets skipped:', err);
+      }
+    };
+
+    fetchLatestFromSheets();
+  }, [showInfo.googleSheetUrl]);
 
   // Auth Handlers
   const handleUnlockAdmin = (enteredPassword: string): boolean => {
