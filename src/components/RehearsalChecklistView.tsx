@@ -65,7 +65,7 @@ export const RehearsalChecklistView: React.FC<RehearsalChecklistViewProps> = ({
               <span>Painel de Produção & Ensaios</span>
             </div>
             <h2 className="font-theatre text-2xl font-bold text-slate-100">
-              Prontidão para o Teatro Brasília Shopping
+              Montagem das coreografias do espetáculo
             </h2>
           </div>
 

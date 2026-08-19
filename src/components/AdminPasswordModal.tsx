@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Unlock, KeyRound, ShieldAlert, X, Check, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Lock, Unlock, KeyRound, ShieldAlert, X, Check, Eye, EyeOff, ShieldCheck, FileSpreadsheet, ExternalLink, RefreshCw } from 'lucide-react';
 
 interface AdminPasswordModalProps {
   isOpen: boolean;
@@ -10,6 +10,8 @@ interface AdminPasswordModalProps {
   onLock: () => void;
   onChangePassword: (oldPass: string, newPass: string) => boolean;
   pendingActionName?: string;
+  googleSheetUrl?: string;
+  onSyncNow?: () => void;
 }
 
 export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
@@ -20,6 +22,8 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
   onLock,
   onChangePassword,
   pendingActionName,
+  googleSheetUrl = 'https://docs.google.com/spreadsheets/d/1QgsC7WJiV7Q78jYeiBI7Sw2whLo9wbKBIl_TlD8f9gU/edit?gid=52395862#gid=52395862',
+  onSyncNow,
 }) => {
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -42,12 +46,9 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
     const success = onUnlock(passwordInput);
     if (success) {
       setPasswordInput('');
-      setSuccessMsg('Acesso liberado!');
-      setTimeout(() => {
-        onClose();
-      }, 500);
+      setSuccessMsg('Acesso liberado com sucesso!');
     } else {
-      setErrorMsg('Senha incorreta.');
+      setErrorMsg('Senha incorreta. Tente novamente.');
     }
   };
 
@@ -81,8 +82,8 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
-      <div className="relative w-full max-w-md bg-slate-900 border border-amber-500/30 rounded-3xl p-6 sm:p-7 shadow-2xl shadow-amber-950/50 space-y-6">
+    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+      <div className="relative w-full max-w-md bg-slate-900 border border-amber-500/30 rounded-3xl p-6 sm:p-7 shadow-2xl shadow-amber-950/50 space-y-5">
         
         {/* Close Button */}
         <button
@@ -100,10 +101,10 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
           </div>
           <div>
             <span className="text-xs font-cinzel text-amber-400 font-bold uppercase tracking-wider block">
-              Controle de Acesso
+              Painel da Direção
             </span>
             <h2 className="font-theatre text-xl font-bold text-slate-100">
-              {isAdmin ? 'Modo Direção' : 'Acesso da Direção'}
+              {isAdmin ? 'Direção Autenticada' : 'Acesso da Direção'}
             </h2>
           </div>
         </div>
@@ -121,21 +122,61 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
         {/* ALREADY LOGGED IN ADMIN STATE */}
         {isAdmin && mode === 'login' && (
           <div className="space-y-4">
-            <div className="p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl space-y-1.5 text-xs text-emerald-200">
-              <div className="flex items-center gap-2 font-bold text-emerald-300">
+            
+            {/* Status Banner */}
+            <div className="p-4 bg-emerald-950/30 border border-emerald-500/40 rounded-2xl space-y-1.5 text-xs text-emerald-200">
+              <div className="flex items-center gap-2 font-bold text-emerald-300 text-sm">
                 <ShieldCheck className="w-4 h-4" />
                 <span>Modo Direção Ativo</span>
               </div>
               <p className="text-slate-300 leading-relaxed">
-                Permissões liberadas para adicionar, editar e excluir coreografias.
+                Você pode gerenciar as coreografias diretamente no app ou editar pela planilha do Google Sheets.
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 pt-2">
+            {/* Direct Google Sheet Edit Link */}
+            <a
+              href={googleSheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-emerald-900/30 hover:from-emerald-900/70 hover:to-emerald-800/40 border border-emerald-500/50 text-emerald-200 transition-all cursor-pointer shadow-lg group"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-300 border border-emerald-500/40 shrink-0 group-hover:scale-105 transition-transform">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div className="text-left min-w-0">
+                  <div className="text-xs sm:text-sm font-bold text-emerald-100 flex items-center gap-1.5">
+                    <span className="truncate">Abrir e Editar Planilha Google Sheets</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-400 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                  </div>
+                  <p className="text-[11px] text-emerald-300/80 truncate">
+                    Edite dados, elenco e links de vídeos no Google Sheets
+                  </p>
+                </div>
+              </div>
+            </a>
+
+            {/* Actions Grid */}
+            <div className="flex flex-col gap-2 pt-1">
+              {onSyncNow && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSyncNow();
+                    onClose();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4 text-emerald-400" />
+                  <span>Sincronizar Alterações da Planilha Agora</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setMode('changePassword')}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 transition-colors cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-750 text-amber-300 border border-slate-700 transition-colors cursor-pointer"
               >
                 <KeyRound className="w-4 h-4" />
                 <span>Alterar Senha de Acesso</span>
@@ -150,7 +191,7 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
                 className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 transition-colors cursor-pointer"
               >
                 <Lock className="w-4 h-4" />
-                <span>Bloquear Edição</span>
+                <span>Bloquear / Sair da Direção</span>
               </button>
             </div>
           </div>
@@ -200,7 +241,7 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
               className="w-full py-3 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-2"
             >
               <Unlock className="w-4 h-4" />
-              <span>Desbloquear Edição</span>
+              <span>Desbloquear Painel da Direção</span>
             </button>
           </form>
         )}

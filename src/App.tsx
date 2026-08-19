@@ -517,6 +517,23 @@ export default function App() {
         onLock={handleLockAdmin}
         onChangePassword={handleChangePassword}
         pendingActionName={pendingAdminAction?.name}
+        googleSheetUrl={showInfo.googleSheetUrl}
+        onSyncNow={async () => {
+          if (!showInfo.googleSheetUrl) return;
+          try {
+            const { fetchGoogleSheetCsv, parseChoreographiesFromCsv } = await import('./utils/googleSheetsSync');
+            const csvText = await fetchGoogleSheetCsv(showInfo.googleSheetUrl);
+            const items = parseChoreographiesFromCsv(csvText);
+            if (items.length > 0) {
+              setChoreographies(items);
+              const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+              setShowInfo((prev) => ({ ...prev, lastSyncedAt: nowStr }));
+              alert(`Sincronizado! ${items.length} coreografias carregadas da planilha.`);
+            }
+          } catch (err: any) {
+            alert(err.message || 'Erro ao sincronizar com o Google Sheets.');
+          }
+        }}
       />
 
       {/* Footer */}
