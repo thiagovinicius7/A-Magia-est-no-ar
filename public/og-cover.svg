@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <radialGradient id="stageSpotlight" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#2D1B4E" />
+      <stop offset="50%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#020617" />
+    </radialGradient>
+    <linearGradient id="goldText" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFBEB" />
+      <stop offset="35%" stop-color="#FDE68A" />
+      <stop offset="70%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+    <linearGradient id="goldBorder" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.1" />
+      <stop offset="50%" stop-color="#FDE68A" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#stageSpotlight)" />
+
+  <!-- Theatrical Glowing Stage Lights -->
+  <circle cx="250" cy="150" r="300" fill="#7C3AED" opacity="0.18" filter="blur(90px)" />
+  <circle cx="950" cy="150" r="300" fill="#F59E0B" opacity="0.15" filter="blur(90px)" />
+
+  <!-- Frame Border -->
+  <rect x="40" y="40" width="1120" height="550" rx="32" fill="none" stroke="url(#goldBorder)" stroke-width="2" />
+
+  <!-- Studio Header -->
+  <text x="600" y="150" font-family="'Cinzel', Georgia, serif" font-size="24" font-weight="700" letter-spacing="8" fill="#FDE68A" text-anchor="middle">
+    STUDIO SÁ PATEIA • SEM FRONTEIRAS
+  </text>
+
+  <!-- Main Show Title -->
+  <text x="600" y="270" font-family="'Playfair Display', Georgia, serif" font-size="78" font-weight="900" fill="url(#goldText)" text-anchor="middle" letter-spacing="2">
+    A Magia está no Ar
+  </text>
+
+  <!-- Show Subtitle -->
+  <text x="600" y="340" font-family="'Plus Jakarta Sans', Arial, sans-serif" font-size="28" font-weight="500" fill="#CBD5E1" text-anchor="middle" letter-spacing="1">
+    Espetáculo Anual de Sapateado Americano &amp; Ritmos
+  </text>
+
+  <!-- Decorative Divider -->
+  <line x1="450" y1="385" x2="750" y2="385" stroke="url(#goldBorder)" stroke-width="2" />
+  <polygon points="600,380 605,385 600,390 595,385" fill="#FDE68A" />
+
+  <!-- Theater Details Badge -->
+  <rect x="300" y="420" width="600" height="64" rx="32" fill="#1E293B" fill-opacity="0.8" stroke="#F59E0B" stroke-width="1.5" stroke-opacity="0.4" />
+  <text x="600" y="462" font-family="'Plus Jakarta Sans', Arial, sans-serif" font-size="22" font-weight="700" fill="#FEF08A" text-anchor="middle">
+    ✨ 21 e 22 de Novembro • Teatro do Brasília Shopping ✨
+  </text>
+
+  <!-- Bottom Details -->
+  <text x="600" y="530" font-family="'Plus Jakarta Sans', Arial, sans-serif" font-size="18" font-weight="400" fill="#94A3B8" text-anchor="middle">
+    Painel Oficial: Vídeos de Ensaio • Elenco • Ordem de Palco • Marcações Cênicas
+  </text>
+</svg>
